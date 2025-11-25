@@ -1,6 +1,6 @@
 # FLASH: Fast Linked AF_XDP Sockets for High Performance Network Services
 
-<img align="right" width="200" height="200" src="https://www.cse.iitb.ac.in/~debojeetdas/flash/flash.png">
+<img align="right" width="200" height="200" src="https://cdn.debojeet.com/assets/flash.png">
 
 [![Commitizen friendly](https://img.shields.io/badge/commitizen-friendly-brightgreen.svg)](http://commitizen.github.io/cz-cli/)
 ![Ubuntu 24.04](https://github.com/rickydebojeet/flash/actions/workflows/main.yml/badge.svg)
