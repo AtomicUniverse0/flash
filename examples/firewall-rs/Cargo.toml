@@ -5,14 +5,15 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4.5.35", features = ["derive"] }
-core_affinity = "0.8.3"
 csv = "1.3.1"
 ctrlc = { version = "3.4.5", optional = true }
 flash = { path = "../../lib/flash-rs", features = ["clap"] }
 macaddr = "1.0.1"
 serde = { version = "1.0.219", features = ["derive"] }
+thiserror = "2.0.17"
 tracing = { version = "0.1.41", optional = true }
 tracing-subscriber = { version = "0.3.19", optional = true }
+utils = { path = "../../lib/utils-rs" }
 
 [features]
 default = ["dep:ctrlc"]

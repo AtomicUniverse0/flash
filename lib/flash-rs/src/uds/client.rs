@@ -1,3 +1,5 @@
+use std::os::fd::{AsRawFd as _, RawFd};
+
 use crate::util;
 
 use super::{
@@ -14,7 +16,7 @@ use super::{
 const FLASH_UNIX_SOCKET_PATH: &str = "/tmp/flash/uds.sock";
 
 #[derive(Debug)]
-pub(crate) struct UdsClient {
+pub struct UdsClient {
     conn: UdsConn,
 }
 
@@ -24,6 +26,10 @@ impl UdsClient {
         Ok(Self {
             conn: UdsConn::new(FLASH_UNIX_SOCKET_PATH)?,
         })
+    }
+
+    pub(crate) fn get_conn_raw_fd(&self) -> RawFd {
+        self.conn.as_raw_fd()
     }
 
     #[allow(
@@ -200,10 +206,6 @@ impl UdsClient {
         }
 
         Ok(prev_nf_ids)
-    }
-
-    pub(crate) fn set_nonblocking(&mut self) -> UdsResult<()> {
-        Ok(self.conn.set_nonblocking(true)?)
     }
 }
 

@@ -1,9 +1,9 @@
-#[cfg(feature = "stats")]
 use std::str::FromStr as _;
 
 use clap::Parser;
 use flash::FlashConfig;
 use macaddr::MacAddr6;
+use utils::CpuRing;
 
 #[cfg(feature = "stats")]
 use flash::tui::GridLayout;
@@ -13,21 +13,8 @@ pub struct Cli {
     #[command(flatten)]
     pub flash_config: FlashConfig,
 
-    #[arg(
-        short = 'c',
-        long,
-        default_value_t = 0,
-        help = "Starting CPU core index for socket threads"
-    )]
-    pub cpu_start: usize,
-
-    #[arg(
-        short = 'e',
-        long,
-        default_value_t = 0,
-        help = "Ending CPU core index for socket threads (inclusive)"
-    )]
-    pub cpu_end: usize,
+    #[arg(short = 'c', long, value_parser = CpuRing::from_str, help = "CPU core range for socket threads")]
+    pub cpu_range: CpuRing,
 
     #[arg(short = 'm', long, help = "Dest MAC address")]
     pub mac_addr: Option<MacAddr6>,
@@ -43,10 +30,9 @@ pub struct StatsConfig {
     #[arg(
         short = 's',
         long = "stats-cpu",
-        default_value_t = 1,
         help = "CPU core index for stats thread"
     )]
-    pub cpu: usize,
+    pub cpu: CpuRing,
 
     #[arg(short = 'F', long, default_value_t = 1, help = "Tui frames per second")]
     pub fps: u64,

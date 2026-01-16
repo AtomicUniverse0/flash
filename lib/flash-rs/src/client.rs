@@ -1,10 +1,11 @@
-use std::{net::Ipv4Addr, str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     config::{BindFlags, FlashConfig, Mode, PollConfig, SocketConfig, XskConfig},
     error::FlashResult,
     fd::SocketFd,
     mem::{PollOutStatus, Umem},
+    monitor::Monitor,
     uds::UdsClient,
     xsk::Socket,
 };
@@ -12,14 +13,8 @@ use crate::{
 #[cfg(feature = "stats")]
 use crate::{config::XdpFlags, stats::Stats};
 
-#[derive(Debug)]
-pub struct Route {
-    pub ip_addr: Ipv4Addr,
-    pub next: Vec<Ipv4Addr>,
-}
-
 #[allow(clippy::missing_errors_doc, clippy::too_many_lines)]
-pub fn connect(config: &FlashConfig) -> FlashResult<(Vec<Socket>, Route)> {
+pub fn connect(config: &FlashConfig) -> FlashResult<(Vec<Socket>, Monitor)> {
     let mut uds_client = UdsClient::new()?;
 
     let (umem_fd, total_sockets, umem_size, umem_scale) =
@@ -91,17 +86,6 @@ pub fn connect(config: &FlashConfig) -> FlashResult<(Vec<Socket>, Route)> {
     #[cfg(all(feature = "stats", feature = "tracing"))]
     tracing::debug!("Ifname: {ifname}");
 
-    let route = Route {
-        ip_addr: Ipv4Addr::from_str(&uds_client.get_ip_addr()?)?,
-        next: uds_client
-            .get_dst_ip_addr()?
-            .iter()
-            .map(|y| Ipv4Addr::from_str(y))
-            .collect::<Result<Vec<_>, _>>()?,
-    };
-
-    uds_client.set_nonblocking()?;
-
     let xsk_config = XskConfig::new(bind_flags, mode);
     let next_size = uds_client.get_route_info()?;
 
@@ -120,13 +104,9 @@ pub fn connect(config: &FlashConfig) -> FlashResult<(Vec<Socket>, Route)> {
     let prev_nf = uds_client.get_prev_nf()?;
 
     let pollout_status = PollOutStatus::new(pollout_fd, pollout_size, config.nf_id, prev_nf)?;
+    let socket_config = Arc::new(SocketConfig::new(xsk_config, poll_config, pollout_status));
 
-    let socket_config = Arc::new(SocketConfig::new(
-        xsk_config,
-        poll_config,
-        pollout_status,
-        uds_client,
-    ));
+    let uds_client = Arc::new(uds_client);
 
     let sockets = socket_info
         .into_iter()
@@ -146,9 +126,10 @@ pub fn connect(config: &FlashConfig) -> FlashResult<(Vec<Socket>, Route)> {
                 #[cfg(feature = "stats")]
                 Stats::new(fd, ifname.clone(), ifqueue, xdp_flags.clone()),
                 socket_config.clone(),
+                uds_client.clone(),
             )
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<_, _>>()?;
 
-    Ok((sockets, route))
+    Ok((sockets, Monitor::new(uds_client)))
 }

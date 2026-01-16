@@ -1,6 +1,9 @@
 use std::{
     io,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -8,7 +11,7 @@ use ratatui::{
     Terminal,
     crossterm::{
         ExecutableCommand,
-        event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
+        event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
         terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
     },
     prelude::CrosstermBackend,
@@ -29,6 +32,7 @@ pub struct StatsDashboard {
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
     panels: Vec<StatsPanel>,
     layout_cache: LayoutCache,
+    stop: Option<Arc<AtomicBool>>,
 }
 
 impl StatsDashboard {
@@ -37,6 +41,7 @@ impl StatsDashboard {
         stats: impl Iterator<Item = Arc<Stats>>,
         fps: u64,
         layout: GridLayout,
+        stop: Option<Arc<AtomicBool>>,
     ) -> TuiResult<Self> {
         let panels = stats
             .enumerate()
@@ -56,6 +61,7 @@ impl StatsDashboard {
             terminal,
             panels,
             layout_cache: LayoutCache::new(layout, num_panels),
+            stop,
         })
     }
 
@@ -80,33 +86,47 @@ impl StatsDashboard {
     fn poll_until_next_frame(&mut self) -> io::Result<bool> {
         let next_frame_time = self.last_frame_time + self.frame_interval;
 
-        loop {
+        let flag = loop {
+            if let Some(stop) = &self.stop
+                && stop.load(Ordering::Relaxed)
+            {
+                break true;
+            }
+
             let now = Instant::now();
             if now >= next_frame_time {
-                break;
+                break false;
             }
 
             if event::poll(next_frame_time - now)? {
                 match event::read()? {
                     Event::Key(KeyEvent {
                         code,
+                        modifiers,
                         kind: KeyEventKind::Press,
                         ..
                     }) => match code {
-                        KeyCode::Char('q' | 'Q') | KeyCode::Esc => return Ok(true),
-                        KeyCode::Char('r' | 'R') => return Ok(false),
+                        KeyCode::Char('q' | 'Q') | KeyCode::Esc => break true,
+                        KeyCode::Char('c' | 'C') if modifiers.contains(KeyModifiers::CONTROL) => {
+                            break true;
+                        }
+                        KeyCode::Char('r' | 'R') => break false,
                         _ => {}
                     },
                     Event::Resize(width, height) => {
                         self.resize_panels((width, height));
-                        return Ok(false);
+                        break false;
                     }
                     _ => {}
                 }
             }
-        }
+        };
 
-        Ok(false)
+        Ok(flag
+            || self
+                .stop
+                .as_ref()
+                .is_some_and(|r| r.load(Ordering::Relaxed)))
     }
 
     #[allow(clippy::missing_errors_doc)]

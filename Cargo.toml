@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "lib/flash-rs",
+  "lib/utils-rs",
   "examples/arpresolver-rs",
   "examples/firewall-rs",
   "examples/helloworld-rs",

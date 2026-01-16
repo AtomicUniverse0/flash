@@ -6,6 +6,7 @@ use crate::{
     config::{BindFlags, Mode, PollMode, SocketConfig},
     fd::SocketFd,
     mem::{CompRing, Cons as _, Desc, FillRing, Prod as _, RxRing, TxRing, Umem},
+    uds::UdsClient,
 };
 
 #[cfg(feature = "pool")]
@@ -31,13 +32,16 @@ pub struct Socket {
     outstanding_tx: u32,
     clock: Clock,
     idle_timestamp: Option<Instant>,
+
     config: Arc<SocketConfig>,
+    _uds_guard: Arc<UdsClient>,
 
     #[cfg(feature = "stats")]
     stats: Arc<Stats>,
 }
 
 impl Socket {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         fd: SocketFd,
         umem: Umem,
@@ -46,6 +50,7 @@ impl Socket {
         umem_offset: u64,
         #[cfg(feature = "stats")] stats: Stats,
         config: Arc<SocketConfig>,
+        uds_guard: Arc<UdsClient>,
     ) -> SocketResult<Self> {
         let off = fd.xdp_mmap_offsets()?;
 
@@ -73,7 +78,9 @@ impl Socket {
             outstanding_tx: 0,
             clock: Clock::new(),
             idle_timestamp: None,
+
             config,
+            _uds_guard: uds_guard,
 
             #[cfg(feature = "stats")]
             stats: Arc::new(stats),

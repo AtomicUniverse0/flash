@@ -1,13 +1,14 @@
 mod cli;
+mod error;
 mod nf;
 
 use std::{
     net::Ipv4Addr,
+    process::ExitCode,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    thread,
 };
 
 use clap::Parser;
@@ -17,16 +18,16 @@ use macaddr::MacAddr6;
 #[cfg(feature = "stats")]
 use flash::tui::StatsDashboard;
 
-use crate::cli::Cli;
+use crate::{cli::Cli, error::AppError};
 
 fn socket_thread(
     mut socket: Socket,
     nf_mac: MacAddr6,
     nf_ip: Ipv4Addr,
     mac_addr: Option<MacAddr6>,
-    run: &Arc<AtomicBool>,
+    stop: &Arc<AtomicBool>,
 ) {
-    while run.load(Ordering::SeqCst) {
+    while !stop.load(Ordering::Relaxed) {
         if !socket.poll().is_ok_and(|val| val) {
             continue;
         }
@@ -60,108 +61,76 @@ fn socket_thread(
     }
 }
 
-fn main() {
+fn run(mut cli: Cli) -> Result<(), AppError> {
+    let (sockets, mut monitor) = flash::connect(&cli.flash_config)?;
+    let nf_ip_addr = monitor.get_nf_ip_addr()?;
+    let stop = Arc::new(AtomicBool::new(true));
+
+    #[cfg(feature = "stats")]
+    let mut tui = StatsDashboard::new(
+        sockets.iter().map(Socket::stats),
+        cli.stats.fps,
+        cli.stats.layout,
+        Some(stop.clone()),
+    )?;
+
+    #[cfg(feature = "stats")]
+    let stats_thread = cli.stats.cpu.spawn(move || {
+        if let Err(err) = tui.run() {
+            eprintln!("error dumping stats: {err}");
+        }
+    });
+
+    #[cfg(not(feature = "stats"))]
+    {
+        let stop = stop.clone();
+        ctrlc::set_handler(move || {
+            stop.store(true, Ordering::Release);
+        })
+    }?;
+
+    let _ = {
+        let stop = stop.clone();
+        monitor.spawn_disconnect_handler(move || {
+            stop.store(true, Ordering::Release);
+        })
+    };
+
+    let socket_threads = cli
+        .cpu_range
+        .spawn_multiple(sockets.into_iter().map(|socket| {
+            let stop = stop.clone();
+            move || socket_thread(socket, cli.nf_mac, nf_ip_addr, cli.mac_addr, &stop)
+        }));
+
+    #[cfg(feature = "stats")]
+    if let Err(err) = stats_thread.join() {
+        eprintln!("error in stats thread: {err:?}");
+    }
+
+    #[cfg(feature = "stats")]
+    stop.store(true, Ordering::Release);
+
+    for handle in socket_threads {
+        if let Err(err) = handle.join() {
+            eprintln!("error in socket thread: {err:?}");
+        }
+    }
+
+    Ok(())
+}
+
+fn main() -> ExitCode {
     #[cfg(feature = "tracing")]
     tracing_subscriber::fmt::init();
 
     let cli = Cli::parse();
 
-    let (sockets, route) = match flash::connect(&cli.flash_config) {
-        Ok(t) => t,
+    match run(cli) {
+        Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("{err}");
-            return;
-        }
-    };
-
-    if sockets.is_empty() {
-        eprintln!("no sockets received");
-        return;
-    }
-
-    #[cfg(feature = "tracing")]
-    tracing::debug!("Sockets: {:?}", sockets);
-
-    #[cfg(feature = "stats")]
-    let mut tui = match StatsDashboard::new(
-        sockets.iter().map(Socket::stats),
-        cli.stats.fps,
-        cli.stats.layout,
-    ) {
-        Ok(t) => t,
-        Err(err) => {
-            eprintln!("error creating tui: {err}");
-            return;
-        }
-    };
-
-    let cores = core_affinity::get_core_ids()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|core_id| core_id.id >= cli.cpu_start && core_id.id <= cli.cpu_end)
-        .collect::<Vec<_>>();
-
-    if cores.is_empty() {
-        eprintln!("no cores found in range {}-{}", cli.cpu_start, cli.cpu_end);
-        return;
-    }
-
-    #[cfg(feature = "tracing")]
-    tracing::debug!("Cores: {:?}", cores);
-
-    #[cfg(feature = "stats")]
-    let Some(stats_core) = core_affinity::get_core_ids()
-        .unwrap_or_default()
-        .into_iter()
-        .find(|core_id| core_id.id == cli.stats.cpu)
-    else {
-        eprintln!("no core found for stats thread {}", cli.stats.cpu);
-        return;
-    };
-
-    let run = Arc::new(AtomicBool::new(true));
-
-    #[cfg(not(feature = "stats"))]
-    if let Err(err) = {
-        let r = run.clone();
-        ctrlc::set_handler(move || {
-            r.store(false, Ordering::SeqCst);
-        })
-    } {
-        eprintln!("error setting Ctrl-C handler: {err}");
-        return;
-    }
-
-    let handles = sockets
-        .into_iter()
-        .zip(cores.into_iter().cycle())
-        .map(|(socket, core_id)| {
-            let r = run.clone();
-            thread::spawn(move || {
-                core_affinity::set_for_current(core_id);
-                socket_thread(socket, cli.nf_mac, route.ip_addr, cli.mac_addr, &r);
-            })
-        })
-        .collect::<Vec<_>>();
-
-    #[cfg(feature = "stats")]
-    if let Err(err) = thread::spawn(move || {
-        core_affinity::set_for_current(stats_core);
-        if let Err(err) = tui.run() {
-            eprintln!("error dumping stats: {err}");
-        }
-    })
-    .join()
-    {
-        eprintln!("error in stats thread: {err:?}");
-    }
-
-    #[cfg(feature = "stats")]
-    run.store(false, Ordering::SeqCst);
-
-    for handle in handles {
-        if let Err(err) = handle.join() {
-            eprintln!("error in thread: {err:?}");
+            ExitCode::FAILURE
         }
     }
 }
