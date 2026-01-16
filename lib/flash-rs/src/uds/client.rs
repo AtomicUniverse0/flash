@@ -211,14 +211,11 @@ impl UdsClient {
 
 impl Drop for UdsClient {
     fn drop(&mut self) {
-        #[cfg(feature = "tracing")]
         if let Err(err) = self.conn.write_all(&FLASH_CLOSE_CONN) {
+            #[cfg(feature = "tracing")]
             tracing::error!("error closing flash connection: {err}");
-        } else {
-            tracing::debug!("Sent FLASH_CLOSE_CONN: {FLASH_CLOSE_CONN:?}");
-        }
 
-        if let Err(err) = self.conn.write_all(&FLASH_CLOSE_CONN) {
+            #[cfg(not(feature = "tracing"))]
             eprintln!("error closing flash connection: {err}");
         }
     }
