@@ -273,14 +273,12 @@ impl Socket {
             } else {
                 self.complete_tx_rx();
 
-                if self.shared.xsk_config.mode.contains(Mode::FLASH_BUSY_POLL)
-                    || self.tx.needs_wakeup()
-                {
+                if self.config.xsk.mode.contains(Mode::FLASH_BUSY_POLL) || self.tx.needs_wakeup() {
                     #[cfg(feature = "stats")]
                     unsafe {
                         (*self.stats.app.get()).tx_wakeup_sendtos += 1;
                     }
-                    let _ = self.fd.kick();
+                    self.fd.kick_tx();
                 }
             }
         }
@@ -327,7 +325,7 @@ impl Socket {
         }
 
         #[cfg(feature = "tracing")]
-        if rcvd > self.shared.xsk_config.batch_size {
+        if rcvd > self.config.xsk.batch_size {
             tracing::warn!("xsk: received more descriptors than batch size");
         }
 
@@ -363,14 +361,12 @@ impl Socket {
             } else {
                 self.complete_tx_rx();
 
-                if self.shared.xsk_config.mode.contains(Mode::FLASH_BUSY_POLL)
-                    || self.tx.needs_wakeup()
-                {
+                if self.config.xsk.mode.contains(Mode::FLASH_BUSY_POLL) || self.tx.needs_wakeup() {
                     #[cfg(feature = "stats")]
                     unsafe {
                         (*self.stats.app.get()).tx_wakeup_sendtos += 1;
                     }
-                    let _ = self.fd.kick();
+                    self.fd.kick_tx();
                 }
             }
         }
