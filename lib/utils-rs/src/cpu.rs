@@ -13,21 +13,44 @@ pub struct CpuRange {
     curr_idx: usize,
 }
 
+fn get_available_cores() -> UtilResult<Vec<CoreId>> {
+    match core_affinity::get_core_ids() {
+        Some(cores) if !cores.is_empty() => Ok(cores),
+        _ => Err(UtilError::NoCpuCores),
+    }
+}
+
 impl CpuRange {
     #[allow(clippy::missing_errors_doc)]
-    pub fn new() -> UtilResult<Self> {
-        Ok(Self {
-            cores: core_affinity::get_core_ids().ok_or(UtilError::NoCpuCores)?,
-            curr_idx: 0,
-        })
+    pub fn new(cores: impl IntoIterator<Item = usize>) -> UtilResult<Self> {
+        let available_cores = get_available_cores()?;
+        let cores = cores
+            .into_iter()
+            .map(|core| {
+                available_cores
+                    .iter()
+                    .find(|c| c.id == core)
+                    .copied()
+                    .ok_or(UtilError::CpuCoreNotFound(core))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(cores.into())
     }
 
     #[allow(clippy::missing_errors_doc)]
     pub fn all() -> UtilResult<Self> {
-        match core_affinity::get_core_ids() {
-            Some(cores) if !cores.is_empty() => Ok(Self { cores, curr_idx: 0 }),
-            _ => Err(UtilError::NoCpuCores),
-        }
+        Ok(get_available_cores()?.into())
+    }
+
+    #[allow(clippy::must_use_candidate)]
+    pub fn len(&self) -> usize {
+        self.cores.len()
+    }
+
+    #[allow(clippy::must_use_candidate)]
+    pub fn is_empty(&self) -> bool {
+        self.cores.is_empty()
     }
 
     pub fn reset(&mut self) {
@@ -46,38 +69,45 @@ impl CpuRange {
         F: FnOnce() + Send + 'static,
     {
         if self.cores.is_empty() {
-            thread::spawn(f)
-        } else {
-            let core_id = self.cores[self.curr_idx];
-            self.curr_idx = (self.curr_idx + 1) % self.cores.len();
-
-            thread::spawn(move || {
-                core_affinity::set_for_current(core_id);
-                f();
-            })
+            return thread::spawn(f);
         }
+
+        let core_id = self.cores[self.curr_idx];
+        self.curr_idx = (self.curr_idx + 1) % self.cores.len();
+
+        thread::spawn(move || {
+            core_affinity::set_for_current(core_id);
+            f();
+        })
     }
 
-    pub fn spawn_multiple<F>(&mut self, funcs: impl IntoIterator<Item = F>) -> Vec<JoinHandle<()>>
+    pub fn spawn_multiple<F, I>(&mut self, funcs: I) -> Vec<JoinHandle<()>>
     where
         F: FnOnce() + Send + 'static,
+        I: IntoIterator<Item = F>,
     {
         if self.cores.is_empty() {
-            funcs.into_iter().map(|f| thread::spawn(f)).collect()
-        } else {
-            funcs
-                .into_iter()
-                .map(|f| {
-                    let core_id = self.cores[self.curr_idx];
-                    self.curr_idx = (self.curr_idx + 1) % self.cores.len();
-
-                    thread::spawn(move || {
-                        core_affinity::set_for_current(core_id);
-                        f();
-                    })
-                })
-                .collect()
+            return funcs.into_iter().map(|f| thread::spawn(f)).collect();
         }
+
+        funcs
+            .into_iter()
+            .map(|f| {
+                let core_id = self.cores[self.curr_idx];
+                self.curr_idx = (self.curr_idx + 1) % self.cores.len();
+
+                thread::spawn(move || {
+                    core_affinity::set_for_current(core_id);
+                    f();
+                })
+            })
+            .collect()
+    }
+}
+
+impl From<Vec<CoreId>> for CpuRange {
+    fn from(cores: Vec<CoreId>) -> Self {
+        Self { cores, curr_idx: 0 }
     }
 }
 
@@ -85,12 +115,14 @@ impl str::FromStr for CpuRange {
     type Err = UtilError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let available_cores = match core_affinity::get_core_ids() {
-            Some(cores) if !cores.is_empty() => cores,
-            _ => return Err(UtilError::NoCpuCores),
-        };
+        let s = s.trim();
+        if s.is_empty() {
+            return Ok(CpuRange::default());
+        }
 
+        let available_cores = get_available_cores()?;
         let mut cores = Vec::new();
+
         for part in s.split(',') {
             if let Some((start, end)) = part.split_once('-')
                 && let Ok(start) = start.trim().parse::<usize>()
@@ -115,12 +147,16 @@ impl str::FromStr for CpuRange {
             }
         }
 
-        Ok(Self { cores, curr_idx: 0 })
+        Ok(cores.into())
     }
 }
 
 impl fmt::Display for CpuRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.cores.is_empty() {
+            return write!(f, "none");
+        }
+
         let mut parts = Vec::new();
         let mut i = 0;
 

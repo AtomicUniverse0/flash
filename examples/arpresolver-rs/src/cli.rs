@@ -1,5 +1,3 @@
-use std::str::FromStr as _;
-
 use clap::Parser;
 use flash::FlashConfig;
 use macaddr::MacAddr6;
@@ -17,7 +15,6 @@ pub struct Cli {
         short = 'c',
         long,
         default_value_t = CpuRange::default(),
-        value_parser = CpuRange::from_str,
         help = "CPU core range for socket threads"
     )]
     pub cpu_range: CpuRange,
@@ -39,6 +36,7 @@ pub struct StatsConfig {
     #[arg(
         short = 's',
         long = "stats-cpu",
+        default_value_t = CpuRange::default(),
         help = "CPU core index for stats thread"
     )]
     pub cpu: CpuRange,
@@ -50,7 +48,6 @@ pub struct StatsConfig {
         short = 'l',
         long,
         default_value_t = GridLayout::default(),
-        value_parser = GridLayout::from_str,
         help = "Tui layout"
     )]
     pub layout: GridLayout,
