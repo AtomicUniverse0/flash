@@ -56,7 +56,7 @@ fn socket_thread(
     }
 }
 
-fn run(mut cli: Cli) -> Result<(), AppError> {
+fn run(cli: Cli) -> Result<(), AppError> {
     let (sockets, monitor) = flash::connect(&cli.flash_config)?;
     let stop = Arc::new(AtomicBool::new(true));
 
@@ -71,7 +71,7 @@ fn run(mut cli: Cli) -> Result<(), AppError> {
     let firewall = Arc::new(Firewall::new(cli.denylist)?);
 
     #[cfg(feature = "stats")]
-    let stats_thread = cli.stats.cpu.spawn(move || {
+    let stats_thread = cli.stats.cpu.unwrap_or_default().spawn(move || {
         if let Err(err) = tui.run() {
             eprintln!("error dumping stats: {err}");
         }
@@ -94,6 +94,7 @@ fn run(mut cli: Cli) -> Result<(), AppError> {
 
     let socket_threads = cli
         .cpu_range
+        .unwrap_or_default()
         .spawn_multiple(sockets.into_iter().map(|socket| {
             let stop = stop.clone();
             let firewall = firewall.clone();

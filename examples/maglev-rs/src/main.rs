@@ -64,7 +64,7 @@ fn socket_thread<H: BuildHasher + Default>(
     }
 }
 
-fn run(mut cli: Cli) -> Result<(), AppError> {
+fn run(cli: Cli) -> Result<(), AppError> {
     let (sockets, mut monitor) = flash::connect(&cli.flash_config)?;
 
     let mut next_ip_addr = monitor.get_next_ip_addr()?;
@@ -101,7 +101,7 @@ fn run(mut cli: Cli) -> Result<(), AppError> {
     )?;
 
     #[cfg(feature = "stats")]
-    let stats_thread = cli.stats.cpu.spawn(move || {
+    let stats_thread = cli.stats.cpu.unwrap_or_default().spawn(move || {
         if let Err(err) = tui.run() {
             eprintln!("error dumping stats: {err}");
         }
@@ -124,6 +124,7 @@ fn run(mut cli: Cli) -> Result<(), AppError> {
 
     let socket_threads = cli
         .cpu_range
+        .unwrap_or_default()
         .spawn_multiple(sockets.into_iter().map(|socket| {
             let stop = stop.clone();
             let maglev = maglev.clone();

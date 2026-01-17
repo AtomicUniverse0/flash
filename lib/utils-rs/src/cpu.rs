@@ -153,10 +153,6 @@ impl str::FromStr for CpuRange {
 
 impl fmt::Display for CpuRange {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.cores.is_empty() {
-            return write!(f, "none");
-        }
-
         let mut parts = Vec::new();
         let mut i = 0;
 
