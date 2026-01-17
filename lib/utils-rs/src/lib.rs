@@ -1,4 +1,4 @@
 mod cpu;
 mod error;
 
-pub use {cpu::CpuRing, error::UtilError};
+pub use {cpu::CpuRange, error::UtilError};

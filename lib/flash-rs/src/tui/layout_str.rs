@@ -1,4 +1,4 @@
-use std::{fmt, str::FromStr};
+use std::{fmt, str};
 
 use super::layout::GridLayout;
 
@@ -14,7 +14,7 @@ impl GridLayoutParseError {
     }
 }
 
-impl FromStr for GridLayout {
+impl str::FromStr for GridLayout {
     type Err = GridLayoutParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {

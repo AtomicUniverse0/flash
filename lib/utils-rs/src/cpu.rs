@@ -1,5 +1,5 @@
 use std::{
-    str::FromStr,
+    fmt, str,
     thread::{self, JoinHandle},
 };
 
@@ -7,19 +7,27 @@ use core_affinity::CoreId;
 
 use crate::error::{UtilError, UtilResult};
 
-#[derive(Clone, Debug)]
-pub struct CpuRing {
+#[derive(Clone, Debug, Default)]
+pub struct CpuRange {
     cores: Vec<CoreId>,
     curr_idx: usize,
 }
 
-impl CpuRing {
+impl CpuRange {
     #[allow(clippy::missing_errors_doc)]
     pub fn new() -> UtilResult<Self> {
         Ok(Self {
             cores: core_affinity::get_core_ids().ok_or(UtilError::NoCpuCores)?,
             curr_idx: 0,
         })
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn all() -> UtilResult<Self> {
+        match core_affinity::get_core_ids() {
+            Some(cores) if !cores.is_empty() => Ok(Self { cores, curr_idx: 0 }),
+            _ => Err(UtilError::NoCpuCores),
+        }
     }
 
     pub fn reset(&mut self) {
@@ -33,7 +41,6 @@ impl CpuRing {
         move || core_affinity::set_for_current(core_id)
     }
 
-    #[allow(clippy::missing_errors_doc)]
     pub fn spawn<F>(&mut self, f: F) -> JoinHandle<()>
     where
         F: FnOnce() + Send + 'static,
@@ -51,7 +58,6 @@ impl CpuRing {
         }
     }
 
-    #[allow(clippy::missing_errors_doc)]
     pub fn spawn_multiple<F>(&mut self, funcs: impl IntoIterator<Item = F>) -> Vec<JoinHandle<()>>
     where
         F: FnOnce() + Send + 'static,
@@ -75,7 +81,7 @@ impl CpuRing {
     }
 }
 
-impl FromStr for CpuRing {
+impl str::FromStr for CpuRange {
     type Err = UtilError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -110,5 +116,32 @@ impl FromStr for CpuRing {
         }
 
         Ok(Self { cores, curr_idx: 0 })
+    }
+}
+
+impl fmt::Display for CpuRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut parts = Vec::new();
+        let mut i = 0;
+
+        while i < self.cores.len() {
+            let start = self.cores[i].id;
+            let mut end = start;
+
+            while i + 1 < self.cores.len() && self.cores[i + 1].id == end + 1 {
+                end = self.cores[i + 1].id;
+                i += 1;
+            }
+
+            if start == end {
+                parts.push(format!("{start}"));
+            } else {
+                parts.push(format!("{start}-{end}"));
+            }
+
+            i += 1;
+        }
+
+        write!(f, "{}", parts.join(","))
     }
 }
