@@ -9,6 +9,11 @@ FLASH is a high-speed userspace library that makes it easy to build efficient, u
 
 Seamlessly integrated with the [**FLASH kernel**](https://github.com/networkedsystemsIITB/flash-linux), it extends AF_XDP to enable true zero-copy packet sharing between network functions (NFs) and network devices, unlocking performance that surpasses traditional AF_XDP chaining solutions.
 
+
+To know more about FLASH's architecture and performance benchmarks. Check our: \
+[FOSDEM '26 Talk](https://fosdem.org/2026/schedule/event/E8RFHV-flash-afxdp/) \
+[SoCC '26 Paper](https://dl.acm.org/doi/abs/10.1145/3772052.3772258)
+
 ## Key Features
 - **Zero-Copy Packet Sharing**: Unlock unparalleled throughput and minimal latency with zero-copy data paths between NFs and network devices.
 - **Unprivileged Operation**: Run AF_XDP applications securely without root access simplifying deployment while maintaining isolation.
@@ -75,6 +80,8 @@ make
 FLASH provides two primary userspace components:
 1. **NF Libraries**: Used to build AF_XDP applications with FLASH support (available in C and Rust).
 2. **Monitor**: A control-plane application that manages AF_XDP socket configurations and enables unprivileged NF operation.
+
+> **Note**: Monitor is currently being rewritten in Rust for improved stability and features. The existing C version is functional but have many limitations and bugs. 
 
 #### Run a Sample L2FWD NF (Switch)
 
@@ -187,4 +194,21 @@ You can also use docker compose to deploy multiple NFs at the same time.
 
 ```bash
 docker compose up -d
+```
+
+## Contact and Citations
+
+For questions, issues, or contributions, please open an issue or pull request. You can also read our research paper for more details on FLASH's design and performance.
+
+If you use FLASH in your research, please cite the following paper:
+```txt
+@inproceedings{10.1145/3772052.3772258,
+    title = {FLASH: Fast Linked AF_XDP Sockets for High Performance Network Function Chains},
+    author = {Das, Debojeet and Baua, Kevin Prafull and Kansara, Aditya and Chakraborty, Arghyadip and Kurukunda, Dheeraj and Vutukuru, Mythili and Kulkarni, Purushottam},
+    booktitle = {Proceedings of the 2025 ACM Symposium on Cloud Computing},
+    pages = {571–584},
+    year = {2026},
+    url = {https://doi.org/10.1145/3772052.3772258},
+    doi = {10.1145/3772052.3772258},
+}
 ```
