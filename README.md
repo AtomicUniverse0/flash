@@ -10,7 +10,7 @@ FLASH is a high-speed userspace library that makes it easy to build efficient, u
 Seamlessly integrated with the [**FLASH kernel**](https://github.com/networkedsystemsIITB/flash-linux), it extends AF_XDP to enable true zero-copy packet sharing between network functions (NFs) and network devices, unlocking performance that surpasses traditional AF_XDP chaining solutions.
 
 
-To know more about FLASH's architecture and performance benchmarks. Check our: \
+To know more about FLASH's architecture and performance benchmarks: \
 [FOSDEM '26 Talk](https://fosdem.org/2026/schedule/event/E8RFHV-flash-afxdp/) \
 [SoCC '26 Paper](https://dl.acm.org/doi/abs/10.1145/3772052.3772258)
 
