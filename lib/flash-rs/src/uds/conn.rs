@@ -1,6 +1,9 @@
 use std::{
     io::{self, Read as _, Write as _},
-    os::unix::net::UnixStream,
+    os::{
+        fd::{AsRawFd, RawFd},
+        unix::net::UnixStream,
+    },
     path::Path,
 };
 
@@ -60,9 +63,11 @@ impl UdsConn {
             .trim_end_matches('\0')
             .to_string())
     }
+}
 
+impl AsRawFd for UdsConn {
     #[inline]
-    pub(super) fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
-        self.0.set_nonblocking(nonblocking)
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
     }
 }

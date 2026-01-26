@@ -1,4 +1,4 @@
-use crate::{mem::PollOutStatus, uds::UdsClient};
+use crate::mem::PollOutStatus;
 
 use super::{poll::PollConfig, xsk::XskConfig};
 
@@ -7,21 +7,14 @@ pub(crate) struct SocketConfig {
     pub(crate) xsk: XskConfig,
     pub(crate) poll: PollConfig,
     pub(crate) pollout_status: PollOutStatus,
-    _uds_client: UdsClient,
 }
 
 impl SocketConfig {
-    pub(crate) fn new(
-        xsk: XskConfig,
-        poll: PollConfig,
-        pollout_status: PollOutStatus,
-        uds_client: UdsClient,
-    ) -> Self {
+    pub(crate) fn new(xsk: XskConfig, poll: PollConfig, pollout_status: PollOutStatus) -> Self {
         Self {
             xsk,
             poll,
             pollout_status,
-            _uds_client: uds_client,
         }
     }
 }

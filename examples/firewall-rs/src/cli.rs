@@ -1,11 +1,9 @@
 use std::path::PathBuf;
 
-#[cfg(feature = "stats")]
-use std::str::FromStr as _;
-
 use clap::Parser;
 use flash::FlashConfig;
 use macaddr::MacAddr6;
+use utils::CpuRange;
 
 #[cfg(feature = "stats")]
 use flash::tui::GridLayout;
@@ -15,21 +13,8 @@ pub struct Cli {
     #[command(flatten)]
     pub flash_config: FlashConfig,
 
-    #[arg(
-        short = 'c',
-        long,
-        default_value_t = 0,
-        help = "Starting CPU core index for socket threads"
-    )]
-    pub cpu_start: usize,
-
-    #[arg(
-        short = 'e',
-        long,
-        default_value_t = 0,
-        help = "Ending CPU core index for socket threads (inclusive)"
-    )]
-    pub cpu_end: usize,
+    #[arg(short = 'c', long, help = "CPU core range for socket threads")]
+    pub cpu_range: Option<CpuRange>,
 
     #[arg(short, long, help = "Path to denylist csv file")]
     pub denylist: PathBuf,
@@ -48,14 +33,18 @@ pub struct StatsConfig {
     #[arg(
         short = 's',
         long = "stats-cpu",
-        default_value_t = 1,
         help = "CPU core index for stats thread"
     )]
-    pub cpu: usize,
+    pub cpu: Option<CpuRange>,
 
     #[arg(short = 'F', long, default_value_t = 1, help = "Tui frames per second")]
     pub fps: u64,
 
-    #[arg(short = 'l', long, default_value_t = GridLayout::default(), value_parser = GridLayout::from_str, help = "Tui layout")]
+    #[arg(
+        short = 'l',
+        long,
+        default_value_t = GridLayout::default(),
+        help = "Tui layout"
+    )]
     pub layout: GridLayout,
 }

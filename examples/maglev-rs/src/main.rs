@@ -1,15 +1,16 @@
 mod cli;
+mod error;
 mod maglev;
 mod nf;
 
 use std::{
     hash::BuildHasher,
     net::Ipv4Addr,
+    process::ExitCode,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    thread,
 };
 
 use clap::Parser;
@@ -20,7 +21,7 @@ use macaddr::MacAddr6;
 #[cfg(feature = "stats")]
 use flash::tui::StatsDashboard;
 
-use crate::{cli::Cli, maglev::Maglev};
+use crate::{cli::Cli, error::AppError, maglev::Maglev};
 
 const MAGLEV_TABLE_SIZE: usize = 65537;
 
@@ -29,9 +30,9 @@ fn socket_thread<H: BuildHasher + Default>(
     maglev: &Arc<Maglev<H>>,
     next_ip: &Arc<Vec<Ipv4Addr>>,
     next_mac: &Arc<Vec<MacAddr6>>,
-    run: &Arc<AtomicBool>,
+    stop: &Arc<AtomicBool>,
 ) {
-    while run.load(Ordering::SeqCst) {
+    while !stop.load(Ordering::Relaxed) {
         if !socket.poll().is_ok_and(|val| val) {
             continue;
         }
@@ -63,137 +64,104 @@ fn socket_thread<H: BuildHasher + Default>(
     }
 }
 
-#[allow(clippy::too_many_lines)]
-fn main() {
+fn run(cli: Cli) -> Result<(), AppError> {
+    let (sockets, mut monitor) = flash::connect(&cli.flash_config)?;
+
+    let mut next_ip_addr = monitor.get_next_ip_addr()?;
+    if next_ip_addr.is_empty() {
+        if let Some(fb_ip) = cli.fallback_ip {
+            next_ip_addr.push(fb_ip);
+        } else {
+            return Err(AppError::EmptyRoute);
+        }
+    }
+
+    if cli.next_mac.len() > 1 && cli.next_mac.len() != next_ip_addr.len() {
+        return Err(AppError::MacIpMismatch {
+            mac_count: cli.next_mac.len(),
+            ip_count: next_ip_addr.len(),
+        });
+    }
+
+    let maglev = Arc::new(Maglev::<FnvBuildHasher>::new(
+        &next_ip_addr,
+        MAGLEV_TABLE_SIZE,
+    ));
+    let next_ip = Arc::new(next_ip_addr);
+    let next_mac = Arc::new(cli.next_mac);
+
+    let stop = Arc::new(AtomicBool::new(true));
+
+    #[cfg(feature = "stats")]
+    let mut tui = StatsDashboard::new(
+        sockets.iter().map(Socket::stats),
+        cli.stats.fps,
+        cli.stats.layout,
+        Some(stop.clone()),
+    )?;
+
+    #[cfg(feature = "stats")]
+    let stats_thread = cli.stats.cpu.unwrap_or_default().spawn(move || {
+        if let Err(err) = tui.run() {
+            eprintln!("error dumping stats: {err}");
+        }
+    });
+
+    #[cfg(not(feature = "stats"))]
+    {
+        let stop = stop.clone();
+        ctrlc::set_handler(move || {
+            stop.store(true, Ordering::Release);
+        })
+    }?;
+
+    let _ = {
+        let stop = stop.clone();
+        monitor.spawn_disconnect_handler(move || {
+            stop.store(true, Ordering::Release);
+        })
+    };
+
+    let socket_threads = cli
+        .cpu_range
+        .unwrap_or_default()
+        .spawn_multiple(sockets.into_iter().map(|socket| {
+            let stop = stop.clone();
+            let maglev = maglev.clone();
+            let next_ip = next_ip.clone();
+            let next_mac = next_mac.clone();
+
+            move || socket_thread(socket, &maglev, &next_ip, &next_mac, &stop)
+        }));
+
+    #[cfg(feature = "stats")]
+    if let Err(err) = stats_thread.join() {
+        eprintln!("error in stats thread: {err:?}");
+    }
+
+    #[cfg(feature = "stats")]
+    stop.store(true, Ordering::Release);
+
+    for handle in socket_threads {
+        if let Err(err) = handle.join() {
+            eprintln!("error in socket thread: {err:?}");
+        }
+    }
+
+    Ok(())
+}
+
+fn main() -> ExitCode {
     #[cfg(feature = "tracing")]
     tracing_subscriber::fmt::init();
 
     let cli = Cli::parse();
 
-    let (sockets, route) = match flash::connect(&cli.flash_config) {
-        Ok(t) => t,
+    match run(cli) {
+        Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("{err}");
-            return;
-        }
-    };
-
-    if sockets.is_empty() {
-        eprintln!("no sockets received");
-        return;
-    }
-
-    #[cfg(feature = "tracing")]
-    tracing::debug!("Sockets: {:?}", sockets);
-
-    #[cfg(feature = "stats")]
-    let mut tui = match StatsDashboard::new(
-        sockets.iter().map(Socket::stats),
-        cli.stats.fps,
-        cli.stats.layout,
-    ) {
-        Ok(t) => t,
-        Err(err) => {
-            eprintln!("error creating tui: {err}");
-            return;
-        }
-    };
-
-    let next_ip = if route.next.is_empty() {
-        if let Some(fb_ip) = cli.fallback_ip {
-            vec![fb_ip]
-        } else {
-            eprintln!("empty route and no fallback IP configured");
-            return;
-        }
-    } else {
-        route.next
-    };
-
-    if cli.next_mac.len() > 1 && cli.next_mac.len() != next_ip.len() {
-        eprintln!(
-            "number of next NF MACs ({}) does not match number of next NFs ({})",
-            cli.next_mac.len(),
-            next_ip.len()
-        );
-        return;
-    }
-
-    let maglev = Arc::new(Maglev::<FnvBuildHasher>::new(&next_ip, MAGLEV_TABLE_SIZE));
-    let next_ip = Arc::new(next_ip);
-    let next_mac = Arc::new(cli.next_mac);
-
-    let cores = core_affinity::get_core_ids()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|core_id| core_id.id >= cli.cpu_start && core_id.id <= cli.cpu_end)
-        .collect::<Vec<_>>();
-
-    if cores.is_empty() {
-        eprintln!("no cores found in range {}-{}", cli.cpu_start, cli.cpu_end);
-        return;
-    }
-
-    #[cfg(feature = "tracing")]
-    tracing::debug!("Cores: {:?}", cores);
-
-    #[cfg(feature = "stats")]
-    let Some(stats_core) = core_affinity::get_core_ids()
-        .unwrap_or_default()
-        .into_iter()
-        .find(|core_id| core_id.id == cli.stats.cpu)
-    else {
-        eprintln!("no core found for stats thread {}", cli.stats.cpu);
-        return;
-    };
-
-    let run = Arc::new(AtomicBool::new(true));
-
-    #[cfg(not(feature = "stats"))]
-    if let Err(err) = {
-        let r = run.clone();
-        ctrlc::set_handler(move || {
-            r.store(false, Ordering::SeqCst);
-        })
-    } {
-        eprintln!("error setting Ctrl-C handler: {err}");
-        return;
-    }
-
-    let handles = sockets
-        .into_iter()
-        .zip(cores.into_iter().cycle())
-        .map(|(socket, core_id)| {
-            let r = run.clone();
-            let maglev = maglev.clone();
-            let next_ip = next_ip.clone();
-            let next_mac = next_mac.clone();
-
-            thread::spawn(move || {
-                core_affinity::set_for_current(core_id);
-                socket_thread(socket, &maglev, &next_ip, &next_mac, &r);
-            })
-        })
-        .collect::<Vec<_>>();
-
-    #[cfg(feature = "stats")]
-    if let Err(err) = thread::spawn(move || {
-        core_affinity::set_for_current(stats_core);
-        if let Err(err) = tui.run() {
-            eprintln!("error dumping stats: {err}");
-        }
-    })
-    .join()
-    {
-        eprintln!("error in stats thread: {err:?}");
-    }
-
-    #[cfg(feature = "stats")]
-    run.store(false, Ordering::SeqCst);
-
-    for handle in handles {
-        if let Err(err) = handle.join() {
-            eprintln!("error in thread: {err:?}");
+            ExitCode::FAILURE
         }
     }
 }

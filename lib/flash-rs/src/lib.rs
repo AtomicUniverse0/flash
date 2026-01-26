@@ -3,6 +3,7 @@ mod config;
 mod error;
 mod fd;
 mod mem;
+mod monitor;
 mod uds;
 mod util;
 mod xsk;
@@ -14,8 +15,5 @@ pub mod stats;
 pub mod tui;
 
 pub use crate::{
-    client::{Route, connect},
-    config::FlashConfig,
-    error::FlashError,
-    xsk::Socket,
+    client::connect, config::FlashConfig, error::FlashError, monitor::Monitor, xsk::Socket,
 };
