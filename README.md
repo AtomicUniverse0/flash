@@ -12,7 +12,7 @@ Seamlessly integrated with the [**FLASH kernel**](https://github.com/networkedsy
 
 To know more about FLASH's architecture and performance benchmarks: \
 [FOSDEM '26 Talk](https://fosdem.org/2026/schedule/event/E8RFHV-flash-afxdp/) \
-[SoCC '26 Paper](https://dl.acm.org/doi/abs/10.1145/3772052.3772258)
+[SoCC '25 Paper](https://dl.acm.org/doi/abs/10.1145/3772052.3772258)
 
 ## Key Features
 - **Zero-Copy Packet Sharing**: Unlock unparalleled throughput and minimal latency with zero-copy data paths between NFs and network devices.
