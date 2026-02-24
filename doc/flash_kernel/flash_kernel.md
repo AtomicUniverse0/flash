@@ -69,7 +69,7 @@ To build the kernel, you need to install few packages that are required:
 
 ```bash
 sudo apt update
-sudo apt install build-essential libncurses-dev bison flex libssl-dev libelf-dev fakeroot dwarves bc
+sudo apt install build-essential libncurses-dev bison flex libssl-dev libelf-dev fakeroot dwarves bc libdw-dev
 ```
 
 #### Build the kernel:
