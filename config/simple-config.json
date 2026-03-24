@@ -15,9 +15,9 @@
                     ]
                 }
             ],
-            "ifname": "enp1s0",
-            "xdp_flags": "d",
-            "bind_flags": "z",
+            "ifname": "ens3",
+            "xdp_flags": "s",
+            "bind_flags": "c",
             "mode": "b",
             "custom_xsk": false,
             "frags_enabled": false

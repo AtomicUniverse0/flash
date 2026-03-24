@@ -136,12 +136,25 @@ static void load(int umem_id)
 
 const char *process_input(char *input)
 {
+	static char response[512];
+
 	if (strncmp(input, "load config", 11) == 0) {
-		nfg = parse_json(input + 12);
-		return input;
+		const char *cfg_file = input + 12;
+		nfg = parse_json(cfg_file);
+		if (!nfg) {
+			snprintf(response, sizeof(response), "Failed to load config '%s': %s", cfg_file,
+				 flash_monitor__last_parse_error());
+			return response;
+		}
+
+		snprintf(response, sizeof(response), "Loaded config '%s' successfully", cfg_file);
+		return response;
 	} else if (strcmp(input, "load route") == 0) {
+		if (!nfg) {
+			return "Failed to load route: no config loaded. Run 'load config <path>' first";
+		}
 		load(0);
-		return input;
+		return "Route loaded successfully";
 	} else {
 		return "Invalid command";
 	}

@@ -4,6 +4,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <log.h>
@@ -12,11 +13,31 @@
 
 #include "flash_monitor.h"
 
-static void configure_nic(char *ifname, int total_queues, int mode)
+static char last_parse_error[256] = "No config parse attempted yet";
+
+static void set_parse_error(const char *fmt, ...)
+{
+	va_list args;
+
+	va_start(args, fmt);
+	vsnprintf(last_parse_error, sizeof(last_parse_error), fmt, args);
+	va_end(args);
+
+	log_error("%s", last_parse_error);
+}
+
+const char *flash_monitor__last_parse_error(void)
+{
+	return last_parse_error;
+}
+
+// 成功返回0， 否则返回错误码
+static int configure_nic(char *ifname, int total_queues, int mode)
 {
 	char total_queues_str[10];
 	// Need to modify this path based on the system and NIC
-	char script_path[256] = "./usertools/netdev/setup_mlx5.sh";
+	// char script_path[256] = "./usertools/netdev/setup_mlx5.sh";
+	char script_path[256] = "./usertools/netdev/setup_cloud_nic.sh";
 	char interface_flag[3] = "-i";
 	char queues_flag[3] = "-q";
 	char busy_poll_flag[3] = "-b";
@@ -27,22 +48,32 @@ static void configure_nic(char *ifname, int total_queues, int mode)
 			log_error("Error in freopen");
 		}
 		if (mode == FLASH__BUSY_POLL) {
+			log_info("Executed with busy poll");
 			char *argv[] = { script_path, interface_flag, ifname, queues_flag, total_queues_str, busy_poll_flag, NULL };
 			if (execvp(argv[0], argv)) {
 				log_error("Error in execvp");
+				exit(-22); // 随便定义的，总之让父进程知道子进程执行失败了
 			}
 			exit(0);
 		} else {
+			log_info("Executed without busy poll");
 			char *argv[] = { script_path, interface_flag, ifname, queues_flag, total_queues_str, NULL };
 			if (execvp(argv[0], argv)) {
 				log_error("Error in execvp");
+				exit(-22);
 			}
 			exit(0);
 		}
 	} else {
 		log_info("Waiting for NIC configuration to complete...");
-		wait(NULL);
-		log_info("NIC configuration completed");
+		int status = -1;
+		wait(&status);
+		if(status == 0){
+			log_info("NIC configuration completed");
+		}else {
+			log_error("Failed to configure NIC errcode: %d", status);
+		}
+		return status;
 	}
 }
 
@@ -79,7 +110,7 @@ struct NFGroup *parse_json(const char *filename)
 {
 	FILE *file = fopen(filename, "r");
 	if (file == NULL) {
-		log_error("Unable to open file");
+		set_parse_error("Unable to open config file: %s", filename);
 		return NULL;
 	}
 
@@ -96,7 +127,7 @@ struct NFGroup *parse_json(const char *filename)
 
 	cJSON *root = cJSON_Parse(json_data);
 	if (!root) {
-		log_error("Error parsing JSON");
+		set_parse_error("Error parsing JSON in config file: %s", filename);
 		return NULL;
 	}
 
@@ -107,7 +138,7 @@ struct NFGroup *parse_json(const char *filename)
 	// Extract "umem" array
 	cJSON *umem_array = cJSON_GetObjectItem(root, "umem");
 	if (!cJSON_IsArray(umem_array)) {
-		log_error("Invalid or missing 'umem' array");
+		set_parse_error("Invalid or missing 'umem' array");
 		cJSON_Delete(root);
 		return NULL;
 	}
@@ -131,7 +162,7 @@ struct NFGroup *parse_json(const char *filename)
 		// ifname
 		cJSON *ifname_obj = cJSON_GetObjectItem(umem_obj, "ifname");
 		if (!cJSON_IsString(ifname_obj)) {
-			log_error("Invalid or missing 'ifname'");
+			set_parse_error("Invalid or missing 'ifname'");
 			cJSON_Delete(root);
 			return NULL;
 		}
@@ -155,7 +186,7 @@ struct NFGroup *parse_json(const char *filename)
 		// Extract "xdp_flags"
 		cJSON *xdp_flags_obj = cJSON_GetObjectItem(umem_obj, "xdp_flags");
 		if (!cJSON_IsString(xdp_flags_obj)) {
-			log_error("Invalid or missing 'xdp_flags'");
+			set_parse_error("Invalid or missing 'xdp_flags'");
 			cJSON_Delete(root);
 			return NULL;
 		}
@@ -166,7 +197,7 @@ struct NFGroup *parse_json(const char *filename)
 		// Extract "bind_flags"
 		cJSON *bind_flags_obj = cJSON_GetObjectItem(umem_obj, "bind_flags");
 		if (!cJSON_IsString(bind_flags_obj)) {
-			log_error("Invalid or missing 'bind_flags'");
+			set_parse_error("Invalid or missing 'bind_flags'");
 			cJSON_Delete(root);
 			return NULL;
 		}
@@ -175,7 +206,7 @@ struct NFGroup *parse_json(const char *filename)
 		log_info("bind_flags: %s", bind_flags);
 
 		if (xdp_flags[0] == 's' && bind_flags[0] == 'z') {
-			log_error("Invalid combination of xdp_flags and bind_flags");
+			set_parse_error("Invalid combination of xdp_flags='s' and bind_flags='z'");
 			cJSON_Delete(root);
 			return NULL;
 		}
@@ -183,7 +214,7 @@ struct NFGroup *parse_json(const char *filename)
 		// Extract "mode"
 		cJSON *mode_obj = cJSON_GetObjectItem(umem_obj, "mode");
 		if (!cJSON_IsString(mode_obj)) {
-			log_error("Invalid or missing 'mode'");
+			set_parse_error("Invalid or missing 'mode'");
 			cJSON_Delete(root);
 			return NULL;
 		}
@@ -195,7 +226,7 @@ struct NFGroup *parse_json(const char *filename)
 			if (nf_group->umem[i]->cfg->xsk->mode == FLASH__POLL) {
 				cJSON *poll_timeout_obj = cJSON_GetObjectItem(umem_obj, "poll_timeout");
 				if (!cJSON_IsNumber(poll_timeout_obj)) {
-					log_error("Invalid or missing 'poll_timeout'");
+					set_parse_error("Invalid or missing 'poll_timeout' for mode='p'");
 					cJSON_Delete(root);
 					return NULL;
 				}
@@ -207,7 +238,7 @@ struct NFGroup *parse_json(const char *filename)
 		// Extract "custom_xsk" array
 		cJSON *custom_xsk_bool = cJSON_GetObjectItem(umem_obj, "custom_xsk");
 		if (!cJSON_IsBool(custom_xsk_bool)) {
-			log_error("Invalid or missing 'custom_xsk'");
+			set_parse_error("Invalid or missing 'custom_xsk'");
 			cJSON_Delete(root);
 			return NULL;
 		}
@@ -222,7 +253,7 @@ struct NFGroup *parse_json(const char *filename)
 		// Extract "frags_enabled" array
 		cJSON *frags_enabled_bool = cJSON_GetObjectItem(umem_obj, "frags_enabled");
 		if (!cJSON_IsBool(frags_enabled_bool)) {
-			log_error("Invalid or missing 'frags_enabled'");
+			set_parse_error("Invalid or missing 'frags_enabled'");
 			cJSON_Delete(root);
 			return NULL;
 		}
@@ -231,7 +262,7 @@ struct NFGroup *parse_json(const char *filename)
 		// Extract "nf" array
 		cJSON *nf_array = cJSON_GetObjectItem(umem_obj, "nf");
 		if (!cJSON_IsArray(nf_array)) {
-			log_error("Invalid or missing 'nf' array");
+			set_parse_error("Invalid or missing 'nf' array");
 			cJSON_Delete(root);
 			return NULL;
 		}
@@ -249,7 +280,7 @@ struct NFGroup *parse_json(const char *filename)
 			nf_group->umem[i]->nf[j]->is_up = false;
 			cJSON *ip_obj = cJSON_GetObjectItem(nf_obj, "nf_ip");
 			if (!cJSON_IsString(ip_obj)) {
-				log_error("Invalid or missing 'nf_ip'");
+				set_parse_error("Invalid or missing 'nf_ip'");
 				cJSON_Delete(root);
 				return NULL;
 			}
@@ -257,7 +288,7 @@ struct NFGroup *parse_json(const char *filename)
 			nf_group->umem[i]->nf[j]->ip[INET_ADDRSTRLEN - 1] = '\0'; // Ensure null-termination
 			cJSON *port_obj = cJSON_GetObjectItem(nf_obj, "nf_port");
 			if (!cJSON_IsNumber(port_obj)) {
-				log_error("Invalid or missing 'nf_port'");
+				set_parse_error("Invalid or missing 'nf_port'");
 				cJSON_Delete(root);
 				return NULL;
 			}
@@ -272,7 +303,7 @@ struct NFGroup *parse_json(const char *filename)
 			cJSON *route_item = cJSON_GetObjectItem(route, nf_id);
 
 			if (!cJSON_IsArray(route_item)) {
-				log_error("Invalid or missing 'route_item' array");
+				set_parse_error("Invalid or missing route entry for nf_id=%d", nf_group->umem[i]->nf[j]->id);
 				cJSON_Delete(root);
 				return NULL;
 			}
@@ -283,7 +314,7 @@ struct NFGroup *parse_json(const char *filename)
 			for (int l = 0; l < edges; l++) {
 				cJSON *item = cJSON_GetArrayItem(route_item, l);
 				if (item == NULL || !cJSON_IsNumber(item)) {
-					log_error("Invalid array item at index %d", l);
+					set_parse_error("Invalid route item at index %d for nf_id=%d", l, nf_group->umem[i]->nf[j]->id);
 					free(next);
 					cJSON_Delete(root);
 					return NULL;
@@ -302,7 +333,7 @@ struct NFGroup *parse_json(const char *filename)
 
 			cJSON *thread_array = cJSON_GetObjectItem(nf_obj, "thread");
 			if (!cJSON_IsArray(thread_array)) {
-				log_error("Invalid or missing 'thread' array");
+				set_parse_error("Invalid or missing 'thread' array");
 				cJSON_Delete(root);
 				return NULL;
 			}
@@ -318,7 +349,7 @@ struct NFGroup *parse_json(const char *filename)
 				nf_group->umem[i]->nf[j]->thread[k]->id = cJSON_GetObjectItem(thread_obj, "thread_id")->valueint;
 				cJSON *queue_obj = cJSON_GetObjectItem(thread_obj, "queue");
 				if (!cJSON_IsNumber(queue_obj)) {
-					log_error("Invalid or missing 'queue'");
+					set_parse_error("Invalid or missing 'queue' in thread configuration");
 					cJSON_Delete(root);
 					return NULL;
 				}
@@ -350,8 +381,13 @@ struct NFGroup *parse_json(const char *filename)
 		}
 	}
 
-	configure_nic(ifname, num_queues, mode);
+	int success = configure_nic(ifname, num_queues, mode);
 	cJSON_Delete(root);
+	if (success != 0) {
+		set_parse_error("Failed to configure NIC, errcode: %d", success);
+		free_nf_group(nf_group);
+		return NULL;
+	}
 
 	return nf_group;
 }

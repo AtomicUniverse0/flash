@@ -1,0 +1,9 @@
+nf_ip 主要是“NF 身份/服务地址元数据”，供应用层逻辑使用，不是 AF_XDP socket 的 bind 地址
+
+nf_port 更像“预留/扩展字段”或供某些应用自读配置时使用，不是这条标准控制链路的必需参数
+
+bind_flags 它决定 AF_XDP 的绑定行为，主要是 copy/zerocopy
+
+mode这是 FLASH 自己的“轮询/唤醒策略模式 
+
+xdp_flags 决定 XDP 程序附着模式（skb/driver/hw）：字符映射：s/d/h -> XDP_FLAGS_SKB_MODE / XDP_FLAGS_DRV_MODE / XDP_FLAGS_HW_MODE

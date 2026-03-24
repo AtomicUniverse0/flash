@@ -13,6 +13,7 @@ extern int unix_socket_server;
 void *init_prompt(void *arg);
 void cleanup_exit(void);
 struct NFGroup *parse_json(const char *filename);
+const char *flash_monitor__last_parse_error(void);
 void free_nf_group(struct NFGroup *nf_group);
 int configure_umem(struct nf_data *data, struct umem **_umem);
 struct socket *create_new_socket(struct umem *umem, int nf_id);
