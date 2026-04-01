@@ -161,6 +161,9 @@ const char *process_input(char *input)
 	return NULL;
 }
 
+/*
+	创建一片大小为size的内存，返回它对应的memfd
+*/
 static int create_memfd(const char *name, size_t size)
 {
 	int fd, ret;
@@ -184,6 +187,7 @@ static int create_memfd(const char *name, size_t size)
 	return fd;
 }
 
+// 真正创建umem
 static void __configure_umem(struct umem *umem)
 {
 	umem->umem_info = calloc(1, sizeof(struct xsk_umem_info));
@@ -254,6 +258,7 @@ static void flash__setup_umem(struct umem *umem)
 	umem->cfg->umem->size = size;
 	umem->cfg->umem_fd = fd;
 
+	// 它被映射为一个数组，每个 uint8_t 可能代表一个 Socket (XSK) 的可写状态
 	size = FLASH_MAX_XSK * sizeof(uint8_t);
 	fd = create_memfd("POLLOUT_STATUS_MEM0", size);
 	flags = MAP_SHARED;
@@ -360,6 +365,7 @@ static void init_config(struct config *cfg)
 	cfg->nf_pollout_status_fd = -1;
 }
 
+// 根据 data里的id，返回对应的umem的fd，若umem不存在，则创建
 int configure_umem(struct nf_data *data, struct umem **_umem)
 {
 	if (nfg == NULL) {

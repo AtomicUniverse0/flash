@@ -192,10 +192,12 @@ int main(int argc, char **argv)
 	cfg->app_options = l2fwd_options;
 	cfg->done = &done;
 
+	// 根据控制台参数，初始化flash的cfg参数
 	shift = flash__parse_cmdline_args(argc, argv, cfg);
 	if (shift < 0)
 		goto out_cfg;
 
+	// 根据控制台参数，初始化app_conf参数
 	if (parse_app_args(argc, argv, &app_conf, shift) < 0)
 		goto out_cfg;
 

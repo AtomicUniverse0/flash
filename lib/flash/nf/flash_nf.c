@@ -65,6 +65,9 @@ static void close_uds_conn(struct config *cfg)
 	return;
 }
 
+// 根据cfg里的 nf_id和 umem_id，获取到umem的信息，包括fd, 大小等
+// 随后，向monitor申请创建socket，并获取到对应的fd和绑定的队列号
+// 最后，获取到路由信息，一起之前的nf
 static int __configure(struct config *cfg, struct nf *nf, int **received_fd)
 {
 	int uds_sockfd, i;
